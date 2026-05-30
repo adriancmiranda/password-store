@@ -366,17 +366,18 @@ cmd_init() {
 }
 
 cmd_show() {
-	local opts selected_line clip=0 qrcode=0
-	opts="$($GETOPT -o q::c:: -l qrcode::,clip:: -n "$PROGRAM" -- "$@")"
+	local opts selected_line clip=0 qrcode=0 gpgonly=0
+	opts="$($GETOPT -o q::c::g -l qrcode::,clip::,gpg-only -n "$PROGRAM" -- "$@")"
 	local err=$?
 	eval set -- "$opts"
 	while true; do case $1 in
 		-q|--qrcode) qrcode=1; selected_line="${2:-1}"; shift 2 ;;
 		-c|--clip) clip=1; selected_line="${2:-1}"; shift 2 ;;
+		-g|--gpg-only) gpgonly=1; shift ;;
 		--) shift; break ;;
 	esac done
 
-	[[ $err -ne 0 || ( $qrcode -eq 1 && $clip -eq 1 ) ]] && die "Usage: $PROGRAM $COMMAND [--clip[=line-number],-c[line-number]] [--qrcode[=line-number],-q[line-number]] [pass-name]"
+	[[ $err -ne 0 || ( $qrcode -eq 1 && $clip -eq 1 ) ]] && die "Usage: $PROGRAM $COMMAND [--clip[=line-number],-c[line-number]] [--qrcode[=line-number],-q[line-number]] [--gpg-only,-g] [pass-name]"
 
 	local pass
 	local path="$1"
@@ -402,7 +403,9 @@ cmd_show() {
 		else
 			echo "${path%\/}"
 		fi
-		tree -N -C -l --noreport -P "*.gpg" --prune "$PREFIX/$path" 3>&- | tail -n +2 | sed -E 's/\.gpg(\x1B\[[0-9]+m)?( ->|$)/\1\2/g' # remove .gpg at end of line, but keep colors
+		local tree_args=()
+		[[ $gpgonly -eq 1 ]] && tree_args+=( -P "*.gpg" --prune )
+		tree -N -C -l --noreport "${tree_args[@]}" "$PREFIX/$path" 3>&- | tail -n +2 | sed -E 's/\.gpg(\x1B\[[0-9]+m)?( ->|$)/\1\2/g' # remove .gpg at end of line, but keep colors
 	elif [[ -z $path ]]; then
 		die "Error: password store is empty. Try \"pass init\"."
 	else
@@ -411,9 +414,16 @@ cmd_show() {
 }
 
 cmd_find() {
-	[[ $# -eq 0 ]] && die "Usage: $PROGRAM $COMMAND pass-names..."
+	local gpgonly=0
+	[[ $1 == "--gpg-only" || $1 == "-g" ]] && { gpgonly=1; shift; }
+	[[ $# -eq 0 ]] && die "Usage: $PROGRAM $COMMAND [--gpg-only,-g] pass-names..."
 	IFS="," eval 'echo "Search Terms: $*"'
-	local terms="*$(printf '%s*.gpg|*' "$@")"
+	local terms
+	if [[ $gpgonly -eq 1 ]]; then
+		terms="*$(printf '%s*.gpg|*' "$@")"
+	else
+		terms="*$(printf '%s*|*' "$@")"
+	fi
 	tree -N -C -l --noreport -P "${terms%|*}" --prune --matchdirs --ignore-case "$PREFIX" 3>&- | tail -n +2 | sed -E 's/\.gpg(\x1B\[[0-9]+m)?( ->|$)/\1\2/g'
 }
 
